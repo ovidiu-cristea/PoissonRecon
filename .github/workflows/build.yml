@@ -8,6 +8,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Supersede in-flight runs for the same branch rather than queueing them up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ---------------------------------------------------------------------------
   # Windows: build AdaptiveSolvers.sln with MSBuild.
@@ -15,6 +20,7 @@ jobs:
   windows:
     name: windows-msvc (${{ matrix.config }} x64)
     runs-on: windows-2022
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -50,6 +56,7 @@ jobs:
   linux:
     name: linux-gcc
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -74,12 +81,16 @@ jobs:
         run: make -C PNG COMPILER=gcc CC="gcc -DPNG_NO_ASSEMBLER_CODE"
 
       - name: Build all targets
+        # Deliberately -j2 rather than -j$(nproc): the FEMTree template
+        # instantiations are memory-hungry, and saturating the runner's cores
+        # pushed it into swap, where a build occasionally died after ~50min
+        # instead of finishing in ~14.
         run: |
           make COMPILER=gcc \
                CC="gcc -DPNG_NO_ASSEMBLER_CODE" \
                CXX="g++ -DPNG_NO_ASSEMBLER_CODE" \
                LFLAGS_IMG="-lmypng -lz -ljpeg" \
-               -j"$(nproc)"
+               -j2
 
       - name: List built binaries
         run: ls -la Bin/Linux/
